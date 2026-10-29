@@ -18,7 +18,7 @@ function isValidMonth(s) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', version: require('../package.json').version });
 });
 
 // GET /expenses?from=YYYY-MM-DD&to=YYYY-MM-DD&category=food  (all optional, range inclusive)
@@ -64,6 +64,31 @@ app.post('/expenses', (req, res) => {
     note: typeof body.note === 'string' ? body.note : '',
   });
   res.status(201).json(row);
+});
+
+// Quote a CSV field if it holds a comma, a double quote or a line break
+function csvField(s) {
+  const v = String(s);
+  return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+// GET /expenses/export.csv?from=YYYY-MM-DD&to=YYYY-MM-DD  (both required, range inclusive)
+app.get('/expenses/export.csv', (req, res) => {
+  const { from, to } = req.query;
+  if (!isValidDate(from)) return res.status(400).json({ error: 'from must be YYYY-MM-DD' });
+  if (!isValidDate(to)) return res.status(400).json({ error: 'to must be YYYY-MM-DD' });
+  if (from > to) return res.status(400).json({ error: 'from must not be after to' });
+
+  const rows = store
+    .readAll()
+    .filter((r) => r.date >= from && r.date <= to)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const lines = ['date,category,amount,note'];
+  for (const r of rows) lines.push([r.date, r.category, r.amount, csvField(r.note ?? '')].join(','));
+
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="expenses-${from}-${to}.csv"`);
+  res.send(lines.join('\n') + '\n');
 });
 
 // --- routes end ---
